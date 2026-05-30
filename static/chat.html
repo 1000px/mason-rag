@@ -626,6 +626,17 @@
         .chart-wrapper canvas { height: 260px !important; }
         .chart-title { font-size: .85em; font-weight: 600; color: #374151; margin-bottom: 3px; }
         .chart-hint { font-size: .75em; color: #9ca3af; margin-top: 4px; text-align: right; }
+        .chart-type-badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: .7em; font-weight: 600; margin-left: 6px; vertical-align: middle; }
+        .chart-type-badge.line { background: #dbeafe; color: #1d4ed8; }
+        .chart-type-badge.doughnut { background: #fce7f3; color: #be185d; }
+        .chart-type-badge.bar { background: #dcfce7; color: #16a34a; }
+        .chart-type-badge.scatter { background: #fef3c7; color: #a16207; }
+        .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 8px; }
+
+        .suggestions-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #e5e7eb; }
+        .suggestions-bar .sug-label { font-size: .75em; color: #9ca3af; margin-right: 4px; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+        .suggestions-bar .sug-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; font-size: .78em; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 14px; cursor: pointer; color: #374151; transition: all .15s; white-space: nowrap; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+        .suggestions-bar .sug-chip:hover { background: #dbeafe; border-color: #93c5fd; color: #1d4ed8; }
 
         .fullscreen-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 9999; justify-content: center; align-items: center; }
         .fullscreen-overlay.show { display: flex; }
@@ -1341,6 +1352,12 @@
             if (!question || isLoading) return;
             document.getElementById('questionInput').value = '';
             addMessage(question, 'user');
+
+            let sessionId = sessionStorage.getItem('chatSessionId');
+            if (!sessionId) {
+                sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+                sessionStorage.setItem('chatSessionId', sessionId);
+            }
             setLoading(true);
 
             const msgDiv = createAssistantMessage();
@@ -1352,7 +1369,7 @@
                 const res = await fetch('/api/chat/stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ question })
+                    body: JSON.stringify({ question, session_id: sessionId })
                 });
 
                 const reader = res.body.getReader();
@@ -1428,6 +1445,10 @@
                                     });
                                     msgDiv.appendChild(srcDiv);
                                 }
+                                if (event.suggestions && event.suggestions.length > 0) {
+                                    const sugBar = renderSuggestionsBar(event.suggestions);
+                                    if (sugBar) msgDiv.querySelector('.bubble').appendChild(sugBar);
+                                }
                             }
                         } catch (_) { }
                     }
@@ -1455,103 +1476,253 @@
             return div;
         }
 
+        function renderSuggestionsBar(suggestions) {
+            if (!suggestions || suggestions.length === 0) return null;
+            const bar = document.createElement('div');
+            bar.className = 'suggestions-bar';
+            const label = document.createElement('span');
+            label.className = 'sug-label';
+            label.textContent = '💡 推荐追问：';
+            bar.appendChild(label);
+            suggestions.forEach(function(s) {
+                const chip = document.createElement('span');
+                chip.className = 'sug-chip';
+                chip.textContent = (s.icon || '') + ' ' + s.text;
+                chip.title = s.text;
+                chip.addEventListener('click', function() {
+                    document.getElementById('questionInput').value = s.text;
+                    document.getElementById('questionInput').focus();
+                    sendQuestion();
+                });
+                bar.appendChild(chip);
+            });
+            return bar;
+        }
+
         function renderCharts(sqlData) {
             if (!sqlData || !sqlData.columns || !sqlData.rows || sqlData.rows.length === 0) return null;
             if (typeof Chart === 'undefined') return null;
 
             const cols = sqlData.columns;
-            const hasNumeric = cols.some(c => {
-                for (const r of sqlData.rows.slice(0, 5)) {
-                    const v = r[c];
-                    if (v !== null && v !== '' && v !== undefined && !isNaN(Number(v))) return true;
-                }
-                return false;
-            });
-            if (!hasNumeric) return null;
+            const rows = sqlData.rows;
 
-            const candidateCols = [];
+            const dateCols = [];
+            const numericCols = [];
+            const labelCols = [];
+
             for (const c of cols) {
-                let numericCount = 0;
-                for (const r of sqlData.rows) {
-                    const v = r[c];
-                    if (v !== null && v !== '' && v !== undefined && !isNaN(Number(v))) numericCount++;
+                let dateHits = 0, numHits = 0, strHits = 0;
+                const sample = Math.min(rows.length, 10);
+                for (let i = 0; i < sample; i++) {
+                    const v = rows[i][c];
+                    if (v === null || v === undefined || v === '') continue;
+                    if (typeof v === 'string' && /^\d{4}[-\/]\d{1,2}[-\/]\d{1,2}/.test(v)) dateHits++;
+                    else if (typeof v === 'number' || (!isNaN(Number(v)) && v !== '')) numHits++;
+                    else strHits++;
                 }
-                if (numericCount > sqlData.rows.length * 0.5) candidateCols.push(c);
-            }
-            if (candidateCols.length === 0) return null;
-
-            const labelCol = cols.find(c => candidateCols.indexOf(c) === -1 && typeof sqlData.rows[0][c] === 'string') || cols[0];
-            const valueCol = candidateCols.find(c => c !== labelCol) || candidateCols[0];
-
-            const labels = [];
-            const values = [];
-            for (const r of sqlData.rows) {
-                labels.push(String(r[labelCol] ?? '').substring(0, 12));
-                values.push(Number(r[valueCol]) || 0);
-            }
-
-            const totalRows = sqlData.rows.length;
-            const barWidth = Math.max(12, Math.min(40, Math.floor(800 / totalRows)));
-            const chartMinWidth = totalRows * (barWidth + 1) + 40;
-            const needsScroll = totalRows > 20;
-
-            const container = document.createElement('div');
-            container.className = 'chart-container';
-
-            const title = document.createElement('div');
-            title.className = 'chart-title';
-            title.textContent = '📊 ' + valueCol + ' 分布（' + totalRows + ' 条）';
-            container.appendChild(title);
-
-            const scrollWrapper = document.createElement('div');
-            scrollWrapper.className = 'chart-wrapper';
-            if (needsScroll) {
-                scrollWrapper.style.overflowX = 'auto';
-                scrollWrapper.style.maxHeight = '310px';
-            }
-
-            const canvas = document.createElement('canvas');
-            if (needsScroll) {
-                canvas.style.width = Math.max(chartMinWidth, 800) + 'px';
-                canvas.style.height = '260px';
-            }
-            scrollWrapper.appendChild(canvas);
-            container.appendChild(scrollWrapper);
-
-            if (needsScroll) {
-                const hint = document.createElement('div');
-                hint.className = 'chart-hint';
-                hint.textContent = '💡 横向拖动查看更多数据';
-                container.appendChild(hint);
-            }
-
-            setTimeout(() => {
-                new Chart(canvas, {
-                    type: 'bar',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: valueCol,
-                            data: values,
-                            backgroundColor: 'rgba(37,99,235,0.6)',
-                            borderColor: 'rgba(37,99,235,1)',
-                            borderWidth: 1,
-                            borderRadius: 3,
-                        }]
-                    },
-                    options: {
-                        responsive: false,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { display: false } },
-                        scales: {
-                            x: { ticks: { maxRotation: 45, font: { size: 10 }, autoSkip: needsScroll } },
-                            y: { beginAtZero: true, ticks: { font: { size: 11 } } }
-                        }
+                if (dateHits >= 1 && dateHits >= strHits) dateCols.push(c);
+                else if (numHits >= strHits && numHits >= 1) {
+                    let totalNum = 0;
+                    for (const r of rows) {
+                        const v = r[c];
+                        if (v !== null && v !== '' && v !== undefined && !isNaN(Number(v))) totalNum++;
                     }
-                });
-            }, 50);
+                    if (totalNum > rows.length * 0.5) numericCols.push(c);
+                    else labelCols.push(c);
+                } else labelCols.push(c);
+            }
 
-            return container;
+            if (numericCols.length === 0) return null;
+
+            const charts = [];
+            const hasDateCol = dateCols.length > 0;
+            const fewCategories = rows.length <= 8;
+
+            if (hasDateCol && numericCols.length > 0) {
+                const dc = dateCols[0];
+                for (const nc of numericCols.slice(0, 3)) {
+                    charts.push({ type: 'line', labelCol: dc, valueCols: [nc] });
+                }
+            } else if (fewCategories && numericCols.length >= 1 && labelCols.length >= 1) {
+                const lc = labelCols[0];
+                charts.push({ type: 'doughnut', labelCol: lc, valueCols: [numericCols[0]] });
+            } else if (numericCols.length >= 2 && labelCols.length === 0 && rows.length >= 3) {
+                charts.push({ type: 'scatter', labelCol: numericCols[0], valueCols: [numericCols[1]] });
+            } else if (labelCols.length >= 1 && numericCols.length >= 1) {
+                const lc = labelCols[0];
+                if (numericCols.length <= 3 && rows.length <= 30) {
+                    charts.push({ type: 'bar', labelCol: lc, valueCols: numericCols.slice(0, 3) });
+                } else {
+                    for (const nc of numericCols.slice(0, 3)) {
+                        charts.push({ type: 'bar', labelCol: lc, valueCols: [nc] });
+                    }
+                }
+            } else if (numericCols.length === 1) {
+                const lc = labelCols[0] || cols.find(c => c !== numericCols[0]) || cols[0];
+                charts.push({ type: 'bar', labelCol: lc, valueCols: [numericCols[0]] });
+            }
+
+            if (charts.length === 0) return null;
+
+            const grid = document.createElement('div');
+            grid.className = 'chart-grid';
+
+            const COLORS = [
+                'rgba(37,99,235,0.7)', 'rgba(220,38,38,0.7)', 'rgba(22,163,74,0.7)',
+                'rgba(217,119,6,0.7)', 'rgba(139,92,246,0.7)', 'rgba(219,39,119,0.7)',
+            ];
+            const BORDERS = [
+                'rgba(37,99,235,1)', 'rgba(220,38,38,1)', 'rgba(22,163,74,1)',
+                'rgba(217,119,6,1)', 'rgba(139,92,246,1)', 'rgba(219,39,119,1)',
+            ];
+            const PALETTE = [
+                '#2563eb', '#dc2626', '#16a34a', '#d97706', '#8b5cf6',
+                '#db2777', '#0891b2', '#4f46e5', '#059669', '#ea580c',
+            ];
+
+            charts.forEach(function(cd) {
+                const type = cd.type, labelCol = cd.labelCol, valueCols = cd.valueCols;
+
+                const labels = rows.map(function(r) { return String(r[labelCol] || '').substring(0, 15); });
+
+                const container = document.createElement('div');
+                container.className = 'chart-container';
+
+                const title = document.createElement('div');
+                title.className = 'chart-title';
+                const typeNames = { line: '折线图', doughnut: '环形图', bar: '柱状图', scatter: '散点图' };
+                const icons = { line: '📈', doughnut: '🍩', bar: '📊', scatter: '⭐' };
+                title.innerHTML = icons[type] + ' ' + valueCols.join(' / ') +
+                    ' <span class="chart-type-badge ' + type + '">' + typeNames[type] + '</span>' +
+                    ' · ' + rows.length + ' 条';
+                container.appendChild(title);
+
+                const needsScroll = type === 'bar' && rows.length > 20;
+                const scrollWrapper = document.createElement('div');
+                scrollWrapper.className = 'chart-wrapper';
+                if (needsScroll) {
+                    scrollWrapper.style.overflowX = 'auto';
+                    scrollWrapper.style.maxHeight = '310px';
+                }
+
+                const canvas = document.createElement('canvas');
+                if (needsScroll) {
+                    canvas.style.width = Math.max(rows.length * 16 + 40, 800) + 'px';
+                    canvas.style.height = '260px';
+                }
+                scrollWrapper.appendChild(canvas);
+                container.appendChild(scrollWrapper);
+
+                if (needsScroll) {
+                    var hint = document.createElement('div');
+                    hint.className = 'chart-hint';
+                    hint.textContent = '💡 横向拖动查看更多数据';
+                    container.appendChild(hint);
+                }
+
+                setTimeout(function() {
+                    var config = {
+                        type: type === 'doughnut' ? 'doughnut' : type === 'scatter' ? 'scatter' : type === 'line' ? 'line' : 'bar',
+                        data: { labels: type === 'scatter' ? undefined : labels },
+                        options: {
+                            responsive: !needsScroll,
+                            maintainAspectRatio: false,
+                            interaction: { intersect: false, mode: 'index' },
+                            plugins: {
+                                legend: (type === 'bar' && valueCols.length > 1) || type === 'line'
+                                    ? { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 11 } } }
+                                    : { display: false },
+                                tooltip: { bodyFont: { size: 12 }, titleFont: { size: 12 } },
+                            },
+                        },
+                    };
+
+                    if (type === 'scatter') {
+                        config.data.datasets = [{
+                            label: valueCols[0] + ' vs ' + valueCols[1],
+                            data: rows.map(function(r) {
+                                return { x: Number(r[valueCols[0]]) || 0, y: Number(r[valueCols[1]]) || 0 };
+                            }),
+                            backgroundColor: 'rgba(37,99,235,0.5)',
+                            borderColor: 'rgba(37,99,235,0.8)',
+                            pointRadius: 4,
+                            pointHoverRadius: 6,
+                        }];
+                        config.options.scales = {
+                            x: { title: { display: true, text: valueCols[0], font: { size: 11 } }, ticks: { font: { size: 10 } } },
+                            y: { title: { display: true, text: valueCols[1], font: { size: 11 } }, ticks: { font: { size: 10 } } },
+                        };
+                    } else if (type === 'doughnut') {
+                        config.data.datasets = [{
+                            data: rows.map(function(r) { return Number(r[valueCols[0]]) || 0; }),
+                            backgroundColor: PALETTE.slice(0, rows.length),
+                            borderColor: '#fff',
+                            borderWidth: 2,
+                        }];
+                        config.options.cutout = '55%';
+                        config.options.interaction = { intersect: true, mode: 'nearest' };
+                        config.options.plugins.tooltip = {
+                            bodyFont: { size: 12 },
+                            titleFont: { size: 12 },
+                            callbacks: {
+                                label: function(ctx) {
+                                    return ctx.label + ': ' + ctx.parsed.toLocaleString();
+                                }
+                            }
+                        };
+                        config.options.plugins.legend = { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 10 }, padding: 8 } };
+                    } else if (type === 'line') {
+                        config.data.datasets = valueCols.map(function(vCol, vi) {
+                            return {
+                                label: vCol,
+                                data: rows.map(function(r) { return Number(r[vCol]) || 0; }),
+                                borderColor: BORDERS[vi],
+                                backgroundColor: COLORS[vi],
+                                fill: false,
+                                tension: 0.3,
+                                pointRadius: Math.min(4, Math.max(2, Math.floor(200 / rows.length))),
+                                pointHoverRadius: 6,
+                            };
+                        });
+                        config.options.scales = {
+                            x: { ticks: { maxRotation: 45, font: { size: 10 }, autoSkip: rows.length > 15 } },
+                            y: { beginAtZero: true, ticks: { font: { size: 11 } } },
+                        };
+                    } else {
+                        if (valueCols.length > 1) {
+                            config.data.datasets = valueCols.map(function(vCol, vi) {
+                                return {
+                                    label: vCol,
+                                    data: rows.map(function(r) { return Number(r[vCol]) || 0; }),
+                                    backgroundColor: COLORS[vi],
+                                    borderColor: BORDERS[vi],
+                                    borderWidth: 1,
+                                    borderRadius: 3,
+                                };
+                            });
+                        } else {
+                            config.data.datasets = [{
+                                label: valueCols[0],
+                                data: rows.map(function(r) { return Number(r[valueCols[0]]) || 0; }),
+                                backgroundColor: 'rgba(37,99,235,0.6)',
+                                borderColor: 'rgba(37,99,235,1)',
+                                borderWidth: 1,
+                                borderRadius: 3,
+                            }];
+                        }
+                        config.options.scales = {
+                            x: { ticks: { maxRotation: 45, font: { size: 10 }, autoSkip: needsScroll } },
+                            y: { beginAtZero: true, ticks: { font: { size: 11 } } },
+                        };
+                    }
+
+                    new Chart(canvas, config);
+                }, 50);
+
+                grid.appendChild(container);
+            });
+
+            return grid;
         }
 
         document.getElementById('questionInput').addEventListener('keydown', function(e) {

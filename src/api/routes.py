@@ -30,6 +30,7 @@ MAX_UPLOAD_SIZE = 50 * 1024 * 1024
 
 class ChatRequest(BaseModel):
     question: str
+    session_id: str = "default"
 
 
 class ChatResponse(BaseModel):
@@ -108,7 +109,9 @@ async def chat_stream(request: ChatRequest):
     async def event_generator():
         from src.core.data_profiler import profile_table
         from src.core.insight_engine import discover_insights
+        from src.core.suggestion_engine import generate_suggestions
         from src.core.table_store import TableStore
+        from src.core.conversation_context import get_context, TurnContext
 
         def compress_markdown(text: str) -> str:
             import re
@@ -117,6 +120,7 @@ async def chat_stream(request: ChatRequest):
 
         store = TableStore()
         table_names = store.get_table_names()
+        conv_ctx = get_context(request.session_id)
 
         profile_keywords = ["数据画像", "数据概况", "数据体检", "数据诊断", "数据总览", "数据洞察", "数据质量", "数据分布", "数据亮点", "发现规律", "数据规律", "业务洞察", "关联分析", "相关性分析", "帕累托分析", "趋势检测", "趋势分析", "找规律", "挖掘规律", "数据挖掘", "分析数据", "分析这张表", "分析一下数据", "分析一下这张表", "这张表怎么样", "表概况", "整体分析", "规律", "亮点", "洞察"]
 
@@ -177,14 +181,34 @@ async def chat_stream(request: ChatRequest):
                     yield f"data: {json.dumps({'type': 'token', 'text': token}, ensure_ascii=False)}\n\n"
 
             full_answer = compress_markdown("".join(answer_parts))
-            yield f"data: {json.dumps({'type': 'done', 'answer': full_answer, 'sources': [f'[数据画像] {tn}' for tn in table_names], 'mode': 'profile', 'profile': profiles}, ensure_ascii=False)}\n\n"
+            profile_suggestions = generate_suggestions(
+                mode="profile",
+                question=request.question,
+                profile=profiles,
+                insights=insights,
+                table_names=table_names,
+                context=conv_ctx,
+            )
+            all_profile_columns = []
+            for tn, p in profiles.items():
+                for ci in p.get("column_info", []):
+                    all_profile_columns.append(ci.get("name", ""))
+            conv_ctx.add_turn(TurnContext(
+                question=request.question,
+                mode="profile",
+                tables=table_names,
+                columns=all_profile_columns[:20],
+                row_count=0,
+                summary=full_answer[:300],
+            ))
+            yield f"data: {json.dumps({'type': 'done', 'answer': full_answer, 'sources': [f'[数据画像] {tn}' for tn in table_names], 'mode': 'profile', 'profile': profiles, 'suggestions': profile_suggestions}, ensure_ascii=False)}\n\n"
 
             yield "data: [DONE]\n\n"
             return
 
         sql_result = None
-        if engine.sql_engine.can_handle(request.question):
-            sql_result = engine.sql_engine.query(request.question)
+        if engine.sql_engine.can_handle(request.question, conv_ctx):
+            sql_result = engine.sql_engine.query(request.question, conv_ctx)
 
         if sql_result and sql_result.get("success"):
             sql_data = {
@@ -202,7 +226,23 @@ async def chat_stream(request: ChatRequest):
                 yield f"data: {json.dumps({'type': 'token', 'text': token}, ensure_ascii=False)}\n\n"
 
             full_answer = compress_markdown("".join(answer_parts))
-            yield f"data: {json.dumps({'type': 'done', 'answer': full_answer, 'sources': ['[结构化数据查询]'], 'mode': 'sql', 'sql_data': sql_data}, ensure_ascii=False)}\n\n"
+            sql_suggestions = generate_suggestions(
+                mode="sql",
+                question=request.question,
+                sql_data=sql_data,
+                table_names=table_names,
+                context=conv_ctx,
+            )
+            conv_ctx.add_turn(TurnContext(
+                question=request.question,
+                mode="sql",
+                tables=table_names,
+                columns=sql_data.get("columns", []),
+                row_count=sql_data.get("row_count", 0),
+                sql=sql_data.get("sql", ""),
+                summary=full_answer[:300],
+            ))
+            yield f"data: {json.dumps({'type': 'done', 'answer': full_answer, 'sources': ['[结构化数据查询]'], 'mode': 'sql', 'sql_data': sql_data, 'suggestions': sql_suggestions}, ensure_ascii=False)}\n\n"
         else:
             context_docs = engine.vector_store.search(request.question, top_k=5)
             from langchain_core.prompts import ChatPromptTemplate
@@ -242,6 +282,14 @@ async def chat_stream(request: ChatRequest):
             if sql_result and not sql_result.get("success"):
                 full_answer = f"（尝试了数据查询但失败: {sql_result.get('error', '')}）\n\n回退到文档检索结果：\n\n{full_answer}"
 
+            conv_ctx.add_turn(TurnContext(
+                question=request.question,
+                mode="rag",
+                tables=[],
+                columns=[],
+                row_count=0,
+                summary=full_answer[:300],
+            ))
             yield f"data: {json.dumps({'type': 'done', 'answer': full_answer, 'sources': sources, 'mode': 'rag'}, ensure_ascii=False)}\n\n"
 
         yield "data: [DONE]\n\n"
