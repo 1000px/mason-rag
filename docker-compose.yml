@@ -1,0 +1,15 @@
+services:
+  mason-rag:
+    build: .
+    container_name: mason-rag
+    ports:
+      - "${APP_PORT:-1234}:1234"
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+      - ./config/settings.yaml:/app/config/settings.yaml
+      - ./.env:/app/.env
+    environment:
+      - APP_HOST=0.0.0.0
+      - APP_PORT=1234
+    restart: unless-stopped

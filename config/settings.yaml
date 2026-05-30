@@ -1,0 +1,93 @@
+# ============================================
+# Mason-RAG 应用配置
+# ============================================
+
+app:
+  name: "Mason-RAG"
+  version: "0.1.0"
+  description: "企业知识库 RAG 系统"
+
+# --- LLM 提供商预设 ---
+llm_providers:
+  deepseek:
+    name: "DeepSeek"
+    base_url: "https://api.deepseek.com/v1"
+    models:
+      - deepseek-chat
+      - deepseek-reasoner
+  openai:
+    name: "OpenAI"
+    base_url: "https://api.openai.com/v1"
+    models:
+      - gpt-4o
+      - gpt-4o-mini
+      - gpt-4-turbo
+  qwen:
+    name: "通义千问"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    models:
+      - qwen-plus
+      - qwen-max
+      - qwen-turbo
+  zhipu:
+    name: "智谱 GLM"
+    base_url: "https://open.bigmodel.cn/api/paas/v4"
+    models:
+      - glm-4-plus
+      - glm-4-flash
+  moonshot:
+    name: "Moonshot (月之暗面)"
+    base_url: "https://api.moonshot.cn/v1"
+    models:
+      - moonshot-v1-8k
+      - moonshot-v1-32k
+      - moonshot-v1-128k
+  custom:
+    name: "自定义"
+    base_url: ""
+    models: []
+
+# --- Embedding 提供商预设 ---
+embedding_providers:
+  openai:
+    name: "OpenAI"
+    base_url: "https://api.openai.com/v1"
+    models:
+      - text-embedding-3-small
+      - text-embedding-3-large
+      - text-embedding-ada-002
+  deepseek:
+    name: "DeepSeek"
+    base_url: "https://api.deepseek.com/v1"
+    models:
+      - deepseek-chat
+  qwen:
+    name: "通义千问"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    models:
+      - text-embedding-v3
+  custom:
+    name: "自定义"
+    base_url: ""
+    models: []
+
+# --- 文档处理配置 ---
+document:
+  chunk_size: 1000
+  chunk_overlap: 200
+  supported_formats:
+    - pdf
+    - docx
+    - xlsx
+    - txt
+    - md
+    - markdown
+  max_upload_size_mb: 50
+
+# --- 检索配置 ---
+retrieval:
+  top_k: 5
+  similarity_threshold: 0.7
+  use_mmr: true
+  mmr_fetch_k: 10
+  mmr_lambda_mult: 0.7

@@ -1,0 +1,1845 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mason-RAG 知识库</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
+            background: #f5f6fa;
+            height: 100vh;
+            display: flex;
+        }
+        .sidebar {
+            width: 280px;
+            background: #fff;
+            border-right: 1px solid #e8e8ec;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            transition: transform .25s;
+        }
+        .sidebar-header {
+            padding: 16px 18px;
+            border-bottom: 1px solid #f0f0f3;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .sidebar-header h2 { font-size: 15px; font-weight: 600; color: #1a1a2e; }
+        .upload-btn {
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            font-size: 13px;
+            padding: 7px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background .2s;
+            white-space: nowrap;
+        }
+        .upload-btn:hover { background: #1d4ed8; }
+        .sidebar-actions { display: flex; gap: 6px; }
+        .clear-btn {
+            background: #fff;
+            color: #ef4444;
+            border: 1px solid #fecaca;
+            font-size: 12px;
+            padding: 5px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all .2s;
+        }
+        .clear-btn:hover { background: #fef2f2; border-color: #fca5a5; }
+        .doc-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+        .doc-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background .15s;
+            font-size: 13px;
+            color: #374151;
+        }
+        .doc-item:hover { background: #f3f4f6; }
+        .doc-item.active { background: #eff6ff; color: #2563eb; font-weight: 500; }
+        .doc-item .doc-icon { margin-right: 8px; font-size: 15px; flex-shrink: 0; }
+        .doc-item .doc-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .doc-item .delete-btn {
+            background: none;
+            border: none;
+            color: #9ca3af;
+            cursor: pointer;
+            font-size: 14px;
+            padding: 2px 4px;
+            border-radius: 4px;
+            opacity: 0;
+            transition: opacity .15s, color .15s;
+        }
+        .doc-item:hover .delete-btn { opacity: 1; }
+        .doc-item .delete-btn:hover { color: #ef4444; background: #fef2f2; }
+        .sidebar-footer {
+            padding: 12px 18px;
+            border-top: 1px solid #f0f0f3;
+            font-size: 12px;
+            color: #9ca3af;
+            text-align: center;
+        }
+        .main-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+        .header {
+            background: #fff;
+            padding: 14px 24px;
+            border-bottom: 1px solid #e8e8ec;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+        .header h1 { font-size: 18px; font-weight: 600; color: #1a1a2e; }
+        .header .badge { font-size: 11px; background: #e8f4fd; color: #2563eb; padding: 4px 10px; border-radius: 12px; }
+        .toggle-sidebar {
+            display: none;
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: #374151;
+            padding: 4px;
+        }
+        .chat-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .chat-area::-webkit-scrollbar { width: 4px; }
+        .chat-area::-webkit-scrollbar-thumb { background: #d4d4d8; border-radius: 4px; }
+        .message {
+            display: flex;
+            flex-direction: column;
+            max-width: 80%;
+            animation: fadeIn .3s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .message.user { align-self: flex-end; }
+        .message.assistant { align-self: flex-start; }
+        .message .bubble {
+            padding: 10px 14px;
+            border-radius: 14px;
+            font-size: 14px;
+            line-height: 1.55;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .message.user .bubble { background: #2563eb; color: #fff; border-bottom-right-radius: 4px; }
+        .message.assistant .bubble { background: #fff; color: #333; border-bottom-left-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+        .message .sources {
+            display: flex;
+            gap: 6px;
+            margin-top: 6px;
+            flex-wrap: wrap;
+        }
+        .message .source-tag {
+            font-size: 11px;
+            color: #6b7280;
+            background: #f3f4f6;
+            padding: 2px 8px;
+            border-radius: 8px;
+        }
+
+        .msg-content { white-space: pre-wrap; word-break: break-word; }
+        .msg-content strong { color: #1f2937; }
+        .msg-content ul { margin: 6px 0; padding-left: 20px; }
+        .msg-content li { margin: 2px 0; }
+        .msg-content code { background: #f3f4f6; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+
+        .mode-badge {
+            display: inline-block;
+            font-size: 11px;
+            padding: 4px 10px;
+            border-radius: 10px;
+            margin-top: 8px;
+        }
+        .mode-badge.sql { background: #dcfce7; color: #166534; }
+        .mode-badge.fallback { background: #fef3c7; color: #92400e; }
+        .mode-badge.profile { background: #ede9fe; color: #6b21a8; }
+
+        .profile-section { margin: 10px 0; }
+        .profile-section-title { font-size: .92em; font-weight: 600; color: #374151; margin-bottom: 6px; padding-left: 2px; }
+
+        .profile-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-bottom: 10px; }
+        .profile-card {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 10px 12px;
+        }
+        .profile-card .pc-label { font-size: .78em; color: #9ca3af; margin-bottom: 3px; }
+        .profile-card .pc-value { font-size: 1.2em; font-weight: 600; color: #1a1a2e; }
+        .profile-card .pc-sub { font-size: .78em; color: #6b7280; margin-top: 2px; }
+        .profile-card.highlight { border-color: #2563eb; background: #f8fafd; }
+
+        .profile-col-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+        .profile-col-tag {
+            font-size: .8em;
+            padding: 4px 9px;
+            border-radius: 10px;
+            border: 1px solid #e5e7eb;
+            color: #374151;
+            background: #f9fafb;
+            white-space: nowrap;
+        }
+        .profile-col-tag.numeric { border-color: #60a5fa; color: #2563eb; background: #eff6ff; }
+        .profile-col-tag.date { border-color: #a78bfa; color: #6d28d9; background: #f5f3ff; }
+        .profile-col-tag.categorical { border-color: #34d399; color: #059669; background: #ecfdf5; }
+        .profile-col-tag.text { border-color: #d1d5db; color: #6b7280; background: #fafafa; }
+        .profile-col-tag.sparse { border-color: #fca5a5; color: #dc2626; background: #fef2f2; }
+
+        .anomaly-list { margin-top: 8px; }
+        .anomaly-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 7px 12px;
+            font-size: .85em;
+            background: #fffbeb;
+            border: 1px solid #fde68a;
+            border-radius: 6px;
+            margin-bottom: 6px;
+        }
+        .anomaly-row .ar-icon { font-size: 1.2em; }
+        .anomaly-row .ar-col { color: #92400e; font-weight: 600; min-width: 70px; }
+        .anomaly-row .ar-val { color: #b45309; font-weight: 700; }
+        .anomaly-row .ar-z { color: #78716c; font-size: .9em; }
+        .anomaly-row .ar-dir { font-size: .9em; }
+        .anomaly-row .ar-dir.high { color: #dc2626; }
+        .anomaly-row .ar-dir.low { color: #2563eb; }
+
+        .topn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-bottom: 10px; }
+        .topn-card {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 10px;
+        }
+        .topn-card .tn-title { font-size: .8em; color: #6b7280; margin-bottom: 6px; }
+        .topn-card .tn-row { display: flex; justify-content: space-between; font-size: .82em; padding: 3px 0; border-bottom: 1px solid #f3f4f6; }
+        .topn-card .tn-key { color: #374151; max-width: 56%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .topn-card .tn-val { color: #2563eb; font-weight: 600; }
+        .topn-card .tn-bar { height: 7px; border-radius: 3px; background: #dbeafe; margin-bottom: 3px; }
+        .topn-card .tn-bar-fill { height: 100%; border-radius: 3px; background: #2563eb; }
+
+        .insight-section { margin: 10px 0; }
+        .insight-section-title { font-size: .92em; font-weight: 600; color: #374151; margin-bottom: 6px; padding-left: 2px; }
+
+        .corr-table { width: 100%; border-collapse: collapse; font-size: .85em; margin-bottom: 8px; }
+        .corr-table th { background: #f8fafc; padding: 6px 10px; text-align: left; font-weight: 600; color: #374151; border-bottom: 2px solid #e5e7eb; }
+        .corr-table td { padding: 6px 10px; border-bottom: 1px solid #f3f4f6; }
+        .corr-table .corr-val { font-weight: 700; }
+        .corr-table .corr-strong { color: #dc2626; }
+        .corr-table .corr-moderate { color: #d97706; }
+        .corr-table .corr-weak { color: #6b7280; }
+        .corr-badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: .75em; font-weight: 600; }
+        .corr-badge.positive { background: #dcfce7; color: #16a34a; }
+        .corr-badge.negative { background: #fee2e2; color: #dc2626; }
+
+        .pareto-card {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 6px;
+        }
+        .pareto-card .pa-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+        .pareto-card .pa-dim { font-size: .85em; font-weight: 600; color: #1a1a2e; }
+        .pareto-card .pa-metric { font-size: .78em; color: #6b7280; }
+        .pareto-card .pa-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: .82em; }
+        .pareto-card .pa-key { min-width: 80px; color: #374151; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .pareto-card .pa-bar-wrap { flex: 1; height: 8px; background: #f3f4f6; border-radius: 4px; overflow: hidden; }
+        .pareto-card .pa-bar-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, #2563eb, #60a5fa); }
+        .pareto-card .pa-val { min-width: 50px; text-align: right; color: #2563eb; font-weight: 600; font-size: .8em; }
+        .pareto-card .pa-pct { min-width: 36px; text-align: right; color: #6b7280; font-size: .78em; }
+        .pareto-card .pa-total { font-size: .75em; color: #9ca3af; text-align: right; margin-top: 4px; }
+
+        .trend-card {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .trend-card .tr-icon { font-size: 1.4em; }
+        .trend-card .tr-body { flex: 1; }
+        .trend-card .tr-title { font-size: .85em; font-weight: 600; color: #1a1a2e; }
+        .trend-card .tr-detail { font-size: .78em; color: #6b7280; margin-top: 2px; }
+        .trend-card .tr-change { font-size: 1.05em; font-weight: 700; }
+        .trend-card .tr-change.up { color: #16a34a; }
+        .trend-card .tr-change.down { color: #dc2626; }
+        .trend-card .tr-change.stable { color: #6b7280; }
+
+        .data-table-container {
+            margin-top: 10px;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .data-table-header {
+            font-size: 12px;
+            color: #6b7280;
+            padding: 8px 12px;
+            background: #f9fafb;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .data-table-wrapper {
+            overflow-x: auto;
+            max-height: 360px;
+            overflow-y: auto;
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        .data-table thead { position: sticky; top: 0; z-index: 1; }
+        .data-table th {
+            background: #2563eb;
+            color: #fff;
+            padding: 8px 12px;
+            text-align: left;
+            font-weight: 500;
+        }
+        .data-table td {
+            padding: 6px 12px;
+            border-bottom: 1px solid #f3f4f6;
+            color: #374151;
+        }
+        .data-table tbody tr:hover { background: #f9fafb; }
+        .data-table-trunc {
+            text-align: center;
+            font-size: 12px;
+            color: #9ca3af;
+            padding: 8px;
+        }
+        .empty-state {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #9ca3af;
+            gap: 12px;
+        }
+        .empty-state .icon { font-size: 48px; opacity: .4; }
+        .empty-state p { font-size: 14px; }
+        .empty-state .hint { font-size: 12px; color: #c4c4cd; }
+        .input-area {
+            flex-shrink: 0;
+            padding: 12px 24px 20px;
+        }
+        .input-row {
+            display: flex;
+            gap: 8px;
+            background: #fff;
+            border: 1px solid #e4e4e7;
+            border-radius: 16px;
+            padding: 6px 6px 6px 18px;
+            box-shadow: 0 2px 8px rgba(0,0,0,.04);
+            transition: border-color .2s;
+        }
+        .input-row:focus-within { border-color: #2563eb; box-shadow: 0 2px 12px rgba(37,99,235,.1); }
+        .input-row input {
+            flex: 1;
+            border: none;
+            outline: none;
+            font-size: 14px;
+            background: transparent;
+            color: #333;
+        }
+        .input-row input::placeholder { color: #c4c4cd; }
+        .input-row button {
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            width: 38px;
+            height: 38px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background .2s;
+            flex-shrink: 0;
+        }
+        .input-row button:hover { background: #1d4ed8; }
+        .input-row button:disabled { background: #a5b4fc; cursor: not-allowed; }
+        .typing-dots { display: flex; gap: 5px; padding: 4px 0; }
+        .typing-dots span {
+            width: 7px; height: 7px;
+            background: #a5b4fc;
+            border-radius: 50%;
+            animation: dotBounce 1.4s infinite ease-in-out both;
+        }
+        .typing-dots span:nth-child(1) { animation-delay: -.32s; }
+        .typing-dots span:nth-child(2) { animation-delay: -.16s; }
+        @keyframes dotBounce { 0%,80%,100% { transform: scale(0); } 40% { transform: scale(1); } }
+        .toast {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1f2937;
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-size: 13px;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity .3s;
+            pointer-events: none;
+        }
+        .toast.show { opacity: 1; }
+        .toast.success { background: #059669; }
+        .toast.error { background: #dc2626; }
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 900;
+        }
+        .modal {
+            background: #fff;
+            border-radius: 16px;
+            padding: 28px;
+            width: 400px;
+            max-width: 90vw;
+            box-shadow: 0 20px 60px rgba(0,0,0,.15);
+        }
+        .modal h3 { font-size: 16px; margin-bottom: 16px; color: #1a1a2e; }
+        .modal .file-input-wrapper {
+            border: 2px dashed #d4d4d8;
+            border-radius: 10px;
+            padding: 28px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color .2s;
+            margin-bottom: 16px;
+        }
+        .modal .file-input-wrapper:hover { border-color: #2563eb; }
+        .modal .file-input-wrapper p { color: #9ca3af; font-size: 13px; }
+        .modal .file-input-wrapper .selected-file { color: #2563eb; font-weight: 500; margin-top: 6px; font-size: 13px; }
+        .modal input[type=file] { display: none; }
+        .modal-btns { display: flex; gap: 8px; justify-content: flex-end; }
+        .modal-btns button {
+            padding: 8px 20px;
+            border-radius: 8px;
+            border: none;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        .modal-btns .cancel-btn { background: #f3f4f6; color: #374151; }
+        .modal-btns .confirm-btn { background: #2563eb; color: #fff; }
+        .modal-btns .confirm-btn:disabled { background: #a5b4fc; cursor: not-allowed; }
+        .modal .status-text { font-size: 13px; color: #6b7280; margin-top: 12px; display: none; }
+        @media (max-width: 768px) {
+            .sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 100; transform: translateX(-100%); }
+            .sidebar.open { transform: translateX(0); }
+            .toggle-sidebar { display: block; }
+        }
+        .header-actions { display: flex; align-items: center; gap: 10px; }
+        .settings-btn {
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 8px;
+            color: #6b7280;
+            transition: color .2s, background .2s;
+        }
+        .settings-btn:hover { color: #2563eb; background: #eff6ff; }
+        .settings-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,.3);
+            z-index: 900;
+            display: none;
+            justify-content: flex-end;
+        }
+        .settings-overlay.open { display: flex; }
+        .settings-panel {
+            width: 440px;
+            max-width: 90vw;
+            background: #fff;
+            height: 100%;
+            overflow-y: auto;
+            box-shadow: -8px 0 30px rgba(0,0,0,.08);
+            animation: slideIn .25s ease;
+        }
+        @keyframes slideIn { from { transform: translateX(40px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .settings-panel-header {
+            padding: 18px 24px;
+            border-bottom: 1px solid #f0f0f3;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            background: #fff;
+            z-index: 1;
+        }
+        .settings-panel-header h3 { font-size: 16px; color: #1a1a2e; }
+        .settings-panel-header .close-btn {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: #9ca3af;
+            padding: 4px;
+            border-radius: 6px;
+        }
+        .settings-panel-header .close-btn:hover { color: #374151; background: #f3f4f6; }
+        .settings-section {
+            padding: 20px 24px;
+            border-bottom: 1px solid #f5f5f7;
+        }
+        .settings-section h4 { font-size: 13px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 14px; }
+        .settings-group { margin-bottom: 14px; }
+        .settings-group:last-child { margin-bottom: 0; }
+        .settings-group label {
+            display: block;
+            font-size: 12px;
+            font-weight: 500;
+            color: #6b7280;
+            margin-bottom: 5px;
+        }
+        .settings-group .input-wrap { position: relative; }
+        .settings-group select, .settings-group input[type=text], .settings-group input[type=password] {
+            width: 100%;
+            padding: 9px 12px;
+            border: 1px solid #e4e4e7;
+            border-radius: 8px;
+            font-size: 13px;
+            color: #333;
+            background: #fafafa;
+            transition: border-color .2s;
+            outline: none;
+            font-family: inherit;
+        }
+        .settings-group select:focus, .settings-group input:focus { border-color: #2563eb; background: #fff; }
+        .settings-group .key-toggle {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            color: #9ca3af;
+            padding: 2px;
+        }
+        .settings-group .key-toggle:hover { color: #374151; }
+        .settings-footer {
+            padding: 16px 24px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .settings-footer .btn-row { display: flex; gap: 8px; }
+        .settings-footer button {
+            padding: 9px 18px;
+            border-radius: 8px;
+            border: none;
+            font-size: 13px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all .2s;
+        }
+        .btn-primary { background: #2563eb; color: #fff; flex: 1; }
+        .btn-primary:hover { background: #1d4ed8; }
+        .btn-outline { background: #fff; color: #374151; border: 1px solid #e4e4e7 !important; }
+        .btn-outline:hover { background: #f9fafb; }
+        .btn-outline.success { color: #059669; border-color: #059669 !important; }
+        .btn-outline.error { color: #dc2626; border-color: #dc2626 !important; }
+        .test-result { font-size: 12px; margin-top: 4px; min-height: 18px; }
+        .test-result.ok { color: #059669; }
+        .test-result.fail { color: #dc2626; }
+        .provider-badge {
+            font-size: 11px;
+            background: #e8f4fd;
+            color: #2563eb;
+            padding: 4px 10px;
+            border-radius: 12px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .provider-badge:hover { background: #dbeafe; }
+
+        .msg-content h1 { font-size: 1.35em; font-weight: 700; margin: 6px 0 2px; color: #1a1a2e; border-bottom: 2px solid #e5e7eb; padding-bottom: 2px; }
+        .msg-content h2 { font-size: 1.2em; font-weight: 700; margin: 5px 0 2px; color: #1a1a2e; border-bottom: 1px solid #f0f0f3; padding-bottom: 1px; }
+        .msg-content h3 { font-size: 1.08em; font-weight: 600; margin: 4px 0 1px; color: #374151; }
+        .msg-content h4 { font-size: 1em; font-weight: 600; margin: 3px 0 1px; color: #4b5563; }
+        .msg-content p { margin: 2px 0; line-height: 1.4; }
+        .msg-content ul, .msg-content ol { margin: 2px 0; padding-left: 20px; }
+        .msg-content li { margin: 0; line-height: 1.35; }
+        .msg-content a { color: #2563eb; text-decoration: underline; }
+        .msg-content a:hover { color: #1d4ed8; }
+        .msg-content blockquote { border-left: 3px solid #2563eb; margin: 3px 0; padding: 2px 10px; background: #f8fafc; color: #4b5563; border-radius: 0 4px 4px 0; }
+        .msg-content code { background: #f1f5f9; padding: 1px 5px; border-radius: 3px; font-family: "SF Mono", "Fira Code", "Consolas", monospace; font-size: .87em; color: #c026d3; }
+        .msg-content pre { background: #1e293b; color: #e2e8f0; padding: 8px 12px; border-radius: 6px; overflow-x: auto; margin: 3px 0; font-size: .84em; line-height: 1.4; }
+        .msg-content pre code { background: none; color: inherit; padding: 0; }
+        .msg-content table { border-collapse: collapse; width: 100%; margin: 3px 0; font-size: .88em; }
+        .msg-content th { background: #f1f5f9; padding: 4px 6px; text-align: left; font-weight: 600; border: 1px solid #e5e7eb; color: #374151; }
+        .msg-content td { padding: 3px 6px; border: 1px solid #e5e7eb; color: #4b5563; }
+        .msg-content tr:nth-child(even) td { background: #fafbfc; }
+        .msg-content hr { border: none; border-top: 1px solid #e5e7eb; margin: 4px 0; }
+        .msg-content strong { color: #1a1a2e; }
+        .msg-content em { color: #6b7280; }
+
+        .chart-container { margin: 6px 0; padding: 8px; background: #fafbfc; border: 1px solid #e5e7eb; border-radius: 10px; }
+        .chart-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .chart-wrapper canvas { height: 260px !important; }
+        .chart-title { font-size: .85em; font-weight: 600; color: #374151; margin-bottom: 3px; }
+        .chart-hint { font-size: .75em; color: #9ca3af; margin-top: 4px; text-align: right; }
+
+        .fullscreen-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 9999; justify-content: center; align-items: center; }
+        .fullscreen-overlay.show { display: flex; }
+        .fullscreen-modal { background: #fff; border-radius: 12px; width: 96vw; height: 94vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+        .fullscreen-modal .fs-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid #e5e7eb; }
+        .fullscreen-modal .fs-header h3 { font-size: 1em; color: #1a1a2e; }
+        .fullscreen-modal .fs-close { background: none; border: none; font-size: 22px; cursor: pointer; color: #6b7280; padding: 4px 8px; border-radius: 6px; }
+        .fullscreen-modal .fs-close:hover { background: #f3f4f6; color: #111; }
+        .fullscreen-modal .fs-body { flex: 1; overflow: auto; padding: 0; }
+        .fullscreen-modal .fs-body .data-table { font-size: 13px; }
+        .fullscreen-modal .fs-body .data-table th { position: sticky; top: 0; z-index: 2; }
+        .fullscreen-modal .fs-footer { padding: 10px 20px; border-top: 1px solid #e5e7eb; font-size: .8em; color: #6b7280; text-align: right; }
+
+        .btn-fullscreen { background: none; border: 1px solid #d1d5db; color: #6b7280; font-size: 11px; padding: 2px 8px; border-radius: 4px; cursor: pointer; margin-left: 8px; transition: all .15s; }
+        .btn-fullscreen:hover { background: #f3f4f6; color: #374151; border-color: #9ca3af; }
+    </style>
+</head>
+<body>
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <h2>📄 文档列表</h2>
+            <div class="sidebar-actions">
+                <button class="upload-btn" onclick="showUploadModal()">+ 上传</button>
+                <button class="clear-btn" onclick="clearAllDocuments()" title="清空所有文档和表格数据">🗑 清空</button>
+            </div>
+        </div>
+        <div class="doc-list" id="docList">
+            <div style="padding:20px;text-align:center;color:#9ca3af;font-size:13px">暂无文档</div>
+        </div>
+        <div class="sidebar-footer" id="sidebarFooter">共 0 个文档</div>
+    </div>
+
+    <div class="main-panel">
+        <div class="header">
+            <button class="toggle-sidebar" onclick="toggleSidebar()" title="文档列表">☰</button>
+            <h1>Mason-RAG 知识库</h1>
+            <div class="header-actions">
+                <span class="provider-badge" id="providerBadge" onclick="openSettings()" title="点击配置 LLM">⚡ DeepSeek</span>
+                <button class="settings-btn" onclick="openSettings()" title="系统设置">⚙️</button>
+            </div>
+        </div>
+        <div class="chat-area" id="chatArea">
+            <div class="empty-state" id="emptyState">
+                <div class="icon">📚</div>
+                <p>向企业知识库提问，获取准确答案</p>
+                <p class="hint">上传文档后即可开始对话</p>
+            </div>
+        </div>
+        <div class="input-area">
+            <div class="input-row">
+                <input type="text" id="questionInput" placeholder="输入问题，比如：公司年假怎么算？" autofocus>
+                <button id="sendBtn" onclick="sendQuestion()">↑</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <div class="fullscreen-overlay" id="fullscreenOverlay" onclick="event.target===this&&closeFullscreen()">
+        <div class="fullscreen-modal">
+            <div class="fs-header">
+                <h3 id="fsTitle">查询结果明细</h3>
+                <button class="fs-close" onclick="closeFullscreen()">✕</button>
+            </div>
+            <div class="fs-body" id="fsBody"></div>
+            <div class="fs-footer" id="fsFooter"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="uploadModal" style="display:none" onclick="event.target===this&&hideUploadModal()">
+        <div class="modal">
+            <h3>上传文档</h3>
+            <div class="file-input-wrapper" onclick="document.getElementById('fileInput').click()">
+                <p id="uploadHint">点击选择文件 (PDF / TXT / Markdown)</p>
+                <p class="selected-file" id="selectedFileName" style="display:none"></p>
+            </div>
+            <input type="file" id="fileInput" accept=".pdf,.txt,.md,.markdown,.xlsx,.xls,.docx" onchange="handleFileSelect(event)">
+            <p class="status-text" id="uploadStatus"></p>
+            <div class="modal-btns">
+                <button class="cancel-btn" onclick="hideUploadModal()">取消</button>
+                <button class="confirm-btn" id="confirmUploadBtn" disabled onclick="doUpload()">上传并摄入</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let selectedFile = null;
+        let isLoading = false;
+        let keyCache = { llm: {}, emb: {} };
+
+        function showToast(msg, type) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.className = 'toast ' + type + ' show';
+            setTimeout(() => { t.className = 'toast'; }, 2500);
+        }
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+        }
+
+        async function clearAllDocuments() {
+            if (!confirm('确定要清空所有文档和表格数据吗？此操作不可恢复！')) return;
+            try {
+                const res = await fetch('/api/documents', { method: 'DELETE' });
+                const data = await res.json();
+                alert(`已清空：${data.deleted_files} 个文件、${data.deleted_vectors} 条向量、${data.deleted_tables} 个表`);
+                loadDocuments();
+            } catch (e) {
+                alert('清空失败: ' + e.message);
+            }
+        }
+
+        async function loadDocuments() {
+            try {
+                const res = await fetch('/api/documents');
+                const data = await res.json();
+                renderDocList(data.documents || []);
+            } catch (e) {
+                renderDocList([]);
+            }
+        }
+
+        function renderDocList(files) {
+            const container = document.getElementById('docList');
+            const footer = document.getElementById('sidebarFooter');
+            if (files.length === 0) {
+                container.innerHTML = '<div style="padding:20px;text-align:center;color:#9ca3af;font-size:13px">暂无文档</div>';
+                footer.textContent = '共 0 个文档';
+            } else {
+                container.innerHTML = files.map(f => `
+                    <div class="doc-item" title="${f}">
+                        <span class="doc-icon">${getDocIcon(f)}</span>
+                        <span class="doc-name">${f}</span>
+                        <button class="delete-btn" onclick="event.stopPropagation();deleteDoc('${f}')" title="删除">✕</button>
+                    </div>
+                `).join('');
+                footer.textContent = `共 ${files.length} 个文档`;
+            }
+        }
+
+        function getDocIcon(name) {
+            if (name.endsWith('.pdf')) return '📕';
+            if (name.endsWith('.md') || name.endsWith('.markdown')) return '📝';
+            return '📄';
+        }
+
+        async function deleteDoc(fileName) {
+            if (!confirm(`确定要删除「${fileName}」吗？\n这将同时删除文件及向量索引。`)) return;
+            try {
+                const res = await fetch('/api/documents/' + encodeURIComponent(fileName), { method: 'DELETE' });
+                if (!res.ok) throw new Error((await res.json()).detail || '删除失败');
+                showToast('已删除: ' + fileName, 'success');
+                loadDocuments();
+            } catch (e) {
+                showToast('删除失败: ' + e.message, 'error');
+            }
+        }
+
+        function showUploadModal() {
+            document.getElementById('uploadModal').style.display = 'flex';
+            resetUploadForm();
+        }
+
+        function hideUploadModal() {
+            document.getElementById('uploadModal').style.display = 'none';
+            resetUploadForm();
+        }
+
+        function resetUploadForm() {
+            selectedFile = null;
+            document.getElementById('fileInput').value = '';
+            document.getElementById('selectedFileName').style.display = 'none';
+            document.getElementById('uploadHint').style.display = '';
+            document.getElementById('confirmUploadBtn').disabled = true;
+            document.getElementById('uploadStatus').style.display = 'none';
+        }
+
+        function handleFileSelect(e) {
+            selectedFile = e.target.files[0];
+            if (selectedFile) {
+                document.getElementById('selectedFileName').textContent = '已选择: ' + selectedFile.name;
+                document.getElementById('selectedFileName').style.display = '';
+                document.getElementById('uploadHint').style.display = 'none';
+                document.getElementById('confirmUploadBtn').disabled = false;
+            }
+        }
+
+        async function doUpload() {
+            if (!selectedFile) return;
+            const btn = document.getElementById('confirmUploadBtn');
+            const status = document.getElementById('uploadStatus');
+            btn.disabled = true;
+            btn.textContent = '摄入中...';
+            status.style.display = 'block';
+            status.textContent = '正在上传并解析文档...';
+
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+
+            try {
+                const res = await fetch('/api/upload', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || '上传失败');
+                status.textContent = `✓ 摄入完成，共 ${data.chunk_count} 个块，${data.vector_count} 条向量`;
+                showToast(`上传成功: ${data.file_name}`, 'success');
+                setTimeout(() => { hideUploadModal(); loadDocuments(); }, 1200);
+            } catch (e) {
+                status.textContent = '✗ ' + e.message;
+                status.style.color = '#dc2626';
+                btn.textContent = '上传并摄入';
+                btn.disabled = false;
+                showToast('上传失败: ' + e.message, 'error');
+            }
+        }
+
+        function hideEmptyState() {
+            const es = document.getElementById('emptyState');
+            if (es.style.display !== 'none') es.style.display = 'none';
+        }
+
+        function addMessage(content, role, sources, extraData) {
+            hideEmptyState();
+            const div = document.createElement('div');
+            div.className = 'message ' + role;
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble';
+
+            const renderedContent = renderMarkdown(content);
+
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'msg-content';
+            contentDiv.innerHTML = renderedContent;
+            bubble.appendChild(contentDiv);
+
+            if (extraData && extraData.mode === 'sql' && extraData.sqlData) {
+                const badge = document.createElement('div');
+                badge.className = 'mode-badge sql';
+                badge.textContent = '🔢 结构化数据查询 · ' + extraData.sqlData.row_count + ' 条结果';
+                bubble.appendChild(badge);
+                if (extraData.sqlData.rows && extraData.sqlData.rows.length > 0) {
+                    const tableContainer = renderDataTable(extraData.sqlData);
+                    bubble.appendChild(tableContainer);
+                }
+            } else if (extraData && extraData.mode === 'sql') {
+                const badge = document.createElement('div');
+                badge.className = 'mode-badge fallback';
+                badge.textContent = '🔢 结构化查询';
+                bubble.appendChild(badge);
+            }
+
+            div.appendChild(bubble);
+            if (sources && sources.length > 0) {
+                const srcDiv = document.createElement('div');
+                srcDiv.className = 'sources';
+                sources.forEach(s => {
+                    const tag = document.createElement('span');
+                    tag.className = 'source-tag';
+                    tag.textContent = '📎 ' + s;
+                    srcDiv.appendChild(tag);
+                });
+                div.appendChild(srcDiv);
+            }
+            document.getElementById('chatArea').appendChild(div);
+            document.getElementById('chatArea').scrollTop = document.getElementById('chatArea').scrollHeight;
+        }
+
+        function renderMarkdown(text) {
+            if (typeof marked === 'undefined') return escapeHtml(text).replace(/\n/g, '<br>');
+            text = text.replace(/\n{2,}/g, '\n');
+            marked.setOptions({ breaks: true, gfm: true });
+            return marked.parse(text);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function renderDataTable(sqlData) {
+            const container = document.createElement('div');
+            container.className = 'data-table-container';
+
+            const header = document.createElement('div');
+            header.className = 'data-table-header';
+
+            const headerText = document.createElement('span');
+            headerText.textContent = '查询结果明细（' + sqlData.row_count + ' 行）';
+            header.appendChild(headerText);
+
+            const fsBtn = document.createElement('button');
+            fsBtn.className = 'btn-fullscreen';
+            fsBtn.textContent = '⛶ 全屏';
+            fsBtn.onclick = function () { showFullscreen(sqlData); };
+            header.appendChild(fsBtn);
+
+            container.appendChild(header);
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'data-table-wrapper';
+
+            const table = document.createElement('table');
+            table.className = 'data-table';
+
+            const thead = document.createElement('thead');
+            const trHead = document.createElement('tr');
+            sqlData.columns.forEach(col => {
+                const th = document.createElement('th');
+                th.textContent = col;
+                trHead.appendChild(th);
+            });
+            thead.appendChild(trHead);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            const maxRows = Math.min(sqlData.rows.length, 50);
+            for (let i = 0; i < maxRows; i++) {
+                const tr = document.createElement('tr');
+                sqlData.columns.forEach(col => {
+                    const td = document.createElement('td');
+                    td.textContent = sqlData.rows[i][col] !== undefined ? sqlData.rows[i][col] : '';
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            }
+            table.appendChild(tbody);
+            wrapper.appendChild(table);
+
+            if (sqlData.rows.length > maxRows) {
+                const trunc = document.createElement('div');
+                trunc.className = 'data-table-trunc';
+                trunc.textContent = '... 共 ' + sqlData.row_count + ' 条，仅展示前 ' + maxRows + ' 条';
+                wrapper.appendChild(trunc);
+            }
+
+            container.appendChild(wrapper);
+            return container;
+        }
+
+        function showFullscreen(sqlData) {
+            const title = document.getElementById('fsTitle');
+            title.textContent = '查询结果明细（共 ' + sqlData.row_count + ' 行）';
+
+            const body = document.getElementById('fsBody');
+            body.innerHTML = '';
+
+            const table = document.createElement('table');
+            table.className = 'data-table';
+
+            const thead = document.createElement('thead');
+            const trHead = document.createElement('tr');
+            sqlData.columns.forEach(col => {
+                const th = document.createElement('th');
+                th.textContent = col;
+                trHead.appendChild(th);
+            });
+            thead.appendChild(trHead);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            sqlData.rows.forEach(row => {
+                const tr = document.createElement('tr');
+                sqlData.columns.forEach(col => {
+                    const td = document.createElement('td');
+                    td.textContent = row[col] !== undefined ? row[col] : '';
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+            table.appendChild(tbody);
+            body.appendChild(table);
+
+            document.getElementById('fsFooter').textContent = '共 ' + sqlData.row_count + ' 条记录 · ' + sqlData.columns.length + ' 列';
+            document.getElementById('fullscreenOverlay').classList.add('show');
+        }
+
+        function closeFullscreen() {
+            document.getElementById('fullscreenOverlay').classList.remove('show');
+        }
+
+        function renderProfileCards(profile) {
+            const section = document.createElement('div');
+            section.className = 'profile-section';
+
+            const title = document.createElement('div');
+            title.className = 'profile-section-title';
+            title.textContent = '📋 ' + profile.table_name + ' · ' + profile.total_rows + '行 × ' + profile.total_columns + '列';
+            section.appendChild(title);
+
+            const grid = document.createElement('div');
+            grid.className = 'profile-card-grid';
+
+            const numCols = profile.column_types.filter(c => c.type === 'numeric').length;
+            const dateCols = profile.column_types.filter(c => c.type === 'date').length;
+            const catCols = profile.column_types.filter(c => c.type === 'categorical' || c.type === 'text').length;
+            const sparseCols = profile.column_types.filter(c => c.type === 'sparse').length;
+
+            [{l:'数值列', v:numCols, cls:'highlight', sub: ''},
+             {l:'日期列', v:dateCols, cls:'', sub: ''},
+             {l:'分类/文本列', v:catCols, cls:'', sub: ''}].forEach(d => {
+                const card = document.createElement('div');
+                card.className = 'profile-card' + (d.cls ? ' ' + d.cls : '');
+                card.innerHTML = '<div class="pc-label">' + d.l + '</div><div class="pc-value">' + d.v + '</div>' + (d.sub ? '<div class="pc-sub">' + d.sub + '</div>' : '');
+                grid.appendChild(card);
+            });
+
+            for (const [colName, stats] of Object.entries(profile.numeric_stats || {})) {
+                if (!stats || !stats.count) continue;
+                const card = document.createElement('div');
+                card.className = 'profile-card';
+                card.innerHTML = '<div class="pc-label">' + colName + ' (数值)</div>'
+                    + '<div class="pc-value">均值 ' + fmtNum(stats.mean) + '</div>'
+                    + '<div class="pc-sub">中位数 ' + fmtNum(stats.median) + ' · 范围 ' + fmtNum(stats.min) + '~' + fmtNum(stats.max) + '</div>';
+                grid.appendChild(card);
+            }
+
+            section.appendChild(grid);
+
+            const colTags = document.createElement('div');
+            colTags.className = 'profile-col-list';
+            profile.column_types.forEach(ct => {
+                const tag = document.createElement('span');
+                tag.className = 'profile-col-tag ' + ct.type;
+                let label = ct.name;
+                if (ct.missing_pct > 0) label += ' (' + ct.missing_pct + '%空)';
+                tag.textContent = label;
+                colTags.appendChild(tag);
+            });
+            section.appendChild(colTags);
+
+            return section;
+        }
+
+        function fmtNum(n) {
+            if (n === null || n === undefined) return '-';
+            if (Number.isInteger(n)) return n.toLocaleString();
+            return Number(n).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+        }
+
+        function renderAnomalyList(anomalies) {
+            if (!anomalies || anomalies.length === 0) return null;
+            const section = document.createElement('div');
+            section.className = 'profile-section';
+
+            const title = document.createElement('div');
+            title.className = 'profile-section-title';
+            title.textContent = '⚠️ 异常数据检测（Z-score > 3σ，共 ' + anomalies.length + ' 条）';
+            section.appendChild(title);
+
+            const list = document.createElement('div');
+            list.className = 'anomaly-list';
+            const show = Math.min(anomalies.length, 8);
+            for (let i = 0; i < show; i++) {
+                const a = anomalies[i];
+                const row = document.createElement('div');
+                row.className = 'anomaly-row';
+                row.innerHTML = '<span class="ar-icon">' + (a.direction === 'high' ? '🔺' : '🔻') + '</span>'
+                    + '<span class="ar-col">' + a.column + '</span>'
+                    + '<span class="ar-val">' + fmtNum(a.value) + '</span>'
+                    + '<span class="ar-dir ' + a.direction + '">' + (a.direction === 'high' ? '偏高' : '偏低') + '</span>'
+                    + '<span class="ar-z">Z=' + a.z_score + '</span>';
+                list.appendChild(row);
+            }
+            if (anomalies.length > show) {
+                const more = document.createElement('div');
+                more.style.cssText = 'font-size:.75em;color:#9ca3af;padding:4px 10px;';
+                more.textContent = '... 还有 ' + (anomalies.length - show) + ' 条异常';
+                list.appendChild(more);
+            }
+            section.appendChild(list);
+            return section;
+        }
+
+        function renderTopNCards(pairs) {
+            if (!pairs || pairs.length === 0) return null;
+            const section = document.createElement('div');
+            section.className = 'profile-section';
+
+            const title = document.createElement('div');
+            title.className = 'profile-section-title';
+            title.textContent = '🏆 维度 Top-N 排名';
+            section.appendChild(title);
+
+            const grid = document.createElement('div');
+            grid.className = 'topn-grid';
+
+            for (const pair of pairs.slice(0, 4)) {
+                const card = document.createElement('div');
+                card.className = 'topn-card';
+
+                const header = document.createElement('div');
+                header.className = 'tn-title';
+                header.textContent = pair.dimension + ' → ' + pair.metric;
+                card.appendChild(header);
+
+                const maxVal = pair.top_n.length > 0 ? pair.top_n[0].value : 1;
+
+                pair.top_n.slice(0, 6).forEach(item => {
+                    const row = document.createElement('div');
+                    row.className = 'tn-row';
+
+                    const barDiv = document.createElement('div');
+                    barDiv.style.cssText = 'flex:1;display:flex;align-items:center;gap:6px;';
+                    const bar = document.createElement('div');
+                    bar.className = 'tn-bar';
+                    bar.style.cssText = 'flex:1;';
+                    bar.innerHTML = '<div class="tn-bar-fill" style="width:' + Math.round(item.value / maxVal * 100) + '%"></div>';
+                    barDiv.appendChild(bar);
+
+                    const keySpan = document.createElement('span');
+                    keySpan.className = 'tn-key';
+                    keySpan.textContent = item.key;
+                    card.appendChild(keySpan);
+                    const valSpan = document.createElement('span');
+                    valSpan.className = 'tn-val';
+                    valSpan.textContent = fmtNum(item.value);
+                    const wrapper = document.createElement('div');
+                    wrapper.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:3px;';
+                    wrapper.appendChild(keySpan);
+                    wrapper.appendChild(valSpan);
+                    card.appendChild(wrapper);
+                });
+
+                grid.appendChild(card);
+            }
+
+            section.appendChild(grid);
+            return section;
+        }
+
+        function renderDateCards(dateAnalysis) {
+            if (!dateAnalysis || dateAnalysis.length === 0) return null;
+            const section = document.createElement('div');
+            section.className = 'profile-section';
+
+            dateAnalysis.forEach(da => {
+                const title = document.createElement('div');
+                title.className = 'profile-section-title';
+                title.textContent = '📅 时间维度 · ' + da.column;
+                section.appendChild(title);
+
+                const grid = document.createElement('div');
+                grid.className = 'profile-card-grid';
+                [
+                    { l: '时间范围', v: da.date_range },
+                    { l: '记录天数', v: da.unique_days + ' 天' },
+                    { l: '日均记录', v: da.daily_avg + ' 条' },
+                    { l: '高峰日', v: da.peak_day + '（' + da.peak_day_count + '条）' },
+                    { l: '繁忙星期', v: da.busiest_weekday },
+                    { l: '趋势', v: da.trend === 'up' ? '📈 上升' : da.trend === 'down' ? '📉 下降' : '➡ 稳定' },
+                ].forEach(d => {
+                    const card = document.createElement('div');
+                    card.className = 'profile-card';
+                    card.innerHTML = '<div class="pc-label">' + d.l + '</div><div class="pc-value">' + d.v + '</div>';
+                    grid.appendChild(card);
+                });
+                section.appendChild(grid);
+
+                if (da.peak_months && da.peak_months.length > 0) {
+                    const monthsTag = document.createElement('div');
+                    monthsTag.className = 'profile-col-list';
+                    monthsTag.style.marginTop = '2px';
+                    da.peak_months.forEach(m => {
+                        const tag = document.createElement('span');
+                        tag.className = 'profile-col-tag date';
+                        tag.textContent = m.month + ' (' + m.count + '条)';
+                        monthsTag.appendChild(tag);
+                    });
+                    section.appendChild(monthsTag);
+                }
+            });
+
+            return section;
+        }
+
+        function renderCorrelationTable(correlations) {
+            if (!correlations || correlations.length === 0) return null;
+            const section = document.createElement('div');
+            section.className = 'insight-section';
+
+            const title = document.createElement('div');
+            title.className = 'insight-section-title';
+            title.textContent = '🔗 相关性分析';
+            section.appendChild(title);
+
+            const table = document.createElement('table');
+            table.className = 'corr-table';
+            table.innerHTML = '<thead><tr><th>列 A</th><th>列 B</th><th>相关系数</th><th>强度</th><th>方向</th></tr></thead>';
+            const tbody = document.createElement('tbody');
+
+            correlations.forEach(c => {
+                const tr = document.createElement('tr');
+                const cls = 'corr-val corr-' + c.strength;
+                const badgeCls = 'corr-badge ' + c.direction;
+                const badgeText = c.direction === 'positive' ? '正相关' : '负相关';
+                tr.innerHTML =
+                    '<td>' + c.column_a + '</td>' +
+                    '<td>' + c.column_b + '</td>' +
+                    '<td class="' + cls + '">' + c.coefficient + '</td>' +
+                    '<td>' + c.strength + '</td>' +
+                    '<td><span class="' + badgeCls + '">' + badgeText + '</span></td>';
+                tbody.appendChild(tr);
+            });
+
+            table.appendChild(tbody);
+            section.appendChild(table);
+            return section;
+        }
+
+        function renderParetoAnalysis(pareto) {
+            if (!pareto || pareto.length === 0) return null;
+            const section = document.createElement('div');
+            section.className = 'insight-section';
+
+            const title = document.createElement('div');
+            title.className = 'insight-section-title';
+            title.textContent = '📐 帕累托分析（80/20 法则）';
+            section.appendChild(title);
+
+            pareto.slice(0, 4).forEach(p => {
+                const card = document.createElement('div');
+                card.className = 'pareto-card';
+
+                const header = document.createElement('div');
+                header.className = 'pa-header';
+                header.innerHTML =
+                    '<span class="pa-dim">' + p.dimension + '</span>' +
+                    '<span class="pa-metric">→ ' + p.metric + '</span>';
+                card.appendChild(header);
+
+                const maxPct = p.vital_few.length > 0 ? p.vital_few[0].pct : 100;
+
+                p.vital_few.forEach(item => {
+                    const row = document.createElement('div');
+                    row.className = 'pa-row';
+                    row.innerHTML =
+                        '<span class="pa-key">' + item.key + '</span>' +
+                        '<span class="pa-bar-wrap"><span class="pa-bar-fill" style="width:' + Math.round(item.pct / maxPct * 100) + '%"></span></span>' +
+                        '<span class="pa-val">' + fmtNum(item.value) + '</span>' +
+                        '<span class="pa-pct">' + item.pct + '%</span>';
+                    card.appendChild(row);
+                });
+
+                if (p.trivial_count > 0) {
+                    const totalRow = document.createElement('div');
+                    totalRow.className = 'pa-total';
+                    totalRow.textContent = '前 ' + p.vital_count + ' 项占 ≥80%，剩余 ' + p.trivial_count + ' 项合计 ' + p.trivial_pct + '%';
+                    card.appendChild(totalRow);
+                }
+
+                section.appendChild(card);
+            });
+            return section;
+        }
+
+        function renderTrendCards(trends) {
+            if (!trends || trends.length === 0) return null;
+            const section = document.createElement('div');
+            section.className = 'insight-section';
+
+            const title = document.createElement('div');
+            title.className = 'insight-section-title';
+            title.textContent = '📈 趋势检测';
+            section.appendChild(title);
+
+            trends.forEach(t => {
+                const card = document.createElement('div');
+                card.className = 'trend-card';
+
+                const iconMap = { up: '📈', down: '📉', stable: '➡' };
+                const dirTextMap = { up: '上升', down: '下降', stable: '稳定' };
+
+                card.innerHTML =
+                    '<span class="tr-icon">' + (iconMap[t.direction] || '➡') + '</span>' +
+                    '<div class="tr-body">' +
+                        '<div class="tr-title">' + t.numeric_column + '（' + t.date_column + '）</div>' +
+                        '<div class="tr-detail">' + t.time_range + ' · ' + t.data_points + ' 个数据点</div>' +
+                    '</div>' +
+                    '<span class="tr-change ' + t.direction + '">' + (t.change_pct >= 0 ? '+' : '') + t.change_pct + '%</span>';
+
+                section.appendChild(card);
+            });
+            return section;
+        }
+
+        function addTypingIndicator() {
+            hideEmptyState();
+            const div = document.createElement('div');
+            div.className = 'message assistant';
+            div.id = 'typingMsg';
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble';
+            bubble.innerHTML = '<div class="typing-dots"><span></span><span></span><span></span></div>';
+            div.appendChild(bubble);
+            document.getElementById('chatArea').appendChild(div);
+            document.getElementById('chatArea').scrollTop = document.getElementById('chatArea').scrollHeight;
+        }
+
+        function removeTypingIndicator() {
+            const el = document.getElementById('typingMsg');
+            if (el) el.remove();
+        }
+
+        function setLoading(loading) {
+            isLoading = loading;
+            document.getElementById('sendBtn').disabled = loading;
+            document.getElementById('questionInput').disabled = loading;
+        }
+
+        async function sendQuestion() {
+            const question = document.getElementById('questionInput').value.trim();
+            if (!question || isLoading) return;
+            document.getElementById('questionInput').value = '';
+            addMessage(question, 'user');
+            setLoading(true);
+
+            const msgDiv = createAssistantMessage();
+            const contentDiv = msgDiv.querySelector('.msg-content');
+            let accumulatedText = '';
+            let extraData = null;
+
+            try {
+                const res = await fetch('/api/chat/stream', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question })
+                });
+
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        const payload = line.slice(6).trim();
+                        if (payload === '[DONE]') continue;
+
+                        try {
+                            const event = JSON.parse(payload);
+
+                            if (event.type === 'sql_data') {
+                                extraData = { mode: event.mode, sqlData: event.sql_data };
+                                const badge = document.createElement('div');
+                                badge.className = 'mode-badge sql';
+                                badge.textContent = '🔢 结构化数据查询 · ' + event.sql_data.row_count + ' 条结果';
+                                msgDiv.querySelector('.bubble').insertBefore(badge, contentDiv);
+                                const chartDiv = renderCharts(event.sql_data);
+                                if (chartDiv) msgDiv.querySelector('.bubble').appendChild(chartDiv);
+                                const tableContainer = renderDataTable(event.sql_data);
+                                msgDiv.querySelector('.bubble').appendChild(tableContainer);
+                            } else if (event.type === 'profile_data') {
+                                extraData = { mode: 'profile', profile: event.profile };
+                                const badge = document.createElement('div');
+                                badge.className = 'mode-badge profile';
+                                badge.textContent = '📊 数据画像 · ' + event.table_count + ' 张表';
+                                msgDiv.querySelector('.bubble').insertBefore(badge, contentDiv);
+                                for (const [tableName, profile] of Object.entries(event.profile)) {
+                                    if (profile.error) continue;
+                                    const cards = renderProfileCards(profile);
+                                    if (cards) msgDiv.querySelector('.bubble').appendChild(cards);
+                                    const anomalyDiv = renderAnomalyList(profile.anomalies);
+                                    if (anomalyDiv) msgDiv.querySelector('.bubble').appendChild(anomalyDiv);
+                                    const topN = renderTopNCards(profile.top_n_pairs);
+                                    if (topN) msgDiv.querySelector('.bubble').appendChild(topN);
+                                    const dateCards = renderDateCards(profile.date_analysis);
+                                    if (dateCards) msgDiv.querySelector('.bubble').appendChild(dateCards);
+
+                                    const tableInsight = event.insights ? event.insights[tableName] : null;
+                                    if (tableInsight) {
+                                        const corrDiv = renderCorrelationTable(tableInsight.correlations);
+                                        if (corrDiv) msgDiv.querySelector('.bubble').appendChild(corrDiv);
+                                        const paretoDiv = renderParetoAnalysis(tableInsight.pareto_analysis);
+                                        if (paretoDiv) msgDiv.querySelector('.bubble').appendChild(paretoDiv);
+                                        const trendDiv = renderTrendCards(tableInsight.trends);
+                                        if (trendDiv) msgDiv.querySelector('.bubble').appendChild(trendDiv);
+                                    }
+                                }
+                            } else if (event.type === 'token') {
+                                accumulatedText += event.text;
+                                contentDiv.innerHTML = renderMarkdown(accumulatedText);
+                            } else if (event.type === 'done') {
+                                accumulatedText = event.answer || accumulatedText;
+                                contentDiv.innerHTML = renderMarkdown(accumulatedText);
+                                if (event.sources && event.sources.length > 0) {
+                                    const srcDiv = document.createElement('div');
+                                    srcDiv.className = 'sources';
+                                    event.sources.forEach(s => {
+                                        const tag = document.createElement('span');
+                                        tag.className = 'source-tag';
+                                        tag.textContent = '📎 ' + s;
+                                        srcDiv.appendChild(tag);
+                                    });
+                                    msgDiv.appendChild(srcDiv);
+                                }
+                            }
+                        } catch (_) { }
+                    }
+                    document.getElementById('chatArea').scrollTop = document.getElementById('chatArea').scrollHeight;
+                }
+            } catch (e) {
+                contentDiv.innerHTML = renderMarkdown('抱歉，请求失败：' + e.message);
+            }
+            setLoading(false);
+            document.getElementById('questionInput').focus();
+        }
+
+        function createAssistantMessage() {
+            hideEmptyState();
+            const div = document.createElement('div');
+            div.className = 'message assistant';
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble';
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'msg-content';
+            contentDiv.innerHTML = '<div class="typing-dots"><span></span><span></span><span></span></div>';
+            bubble.appendChild(contentDiv);
+            div.appendChild(bubble);
+            document.getElementById('chatArea').appendChild(div);
+            return div;
+        }
+
+        function renderCharts(sqlData) {
+            if (!sqlData || !sqlData.columns || !sqlData.rows || sqlData.rows.length === 0) return null;
+            if (typeof Chart === 'undefined') return null;
+
+            const cols = sqlData.columns;
+            const hasNumeric = cols.some(c => {
+                for (const r of sqlData.rows.slice(0, 5)) {
+                    const v = r[c];
+                    if (v !== null && v !== '' && v !== undefined && !isNaN(Number(v))) return true;
+                }
+                return false;
+            });
+            if (!hasNumeric) return null;
+
+            const candidateCols = [];
+            for (const c of cols) {
+                let numericCount = 0;
+                for (const r of sqlData.rows) {
+                    const v = r[c];
+                    if (v !== null && v !== '' && v !== undefined && !isNaN(Number(v))) numericCount++;
+                }
+                if (numericCount > sqlData.rows.length * 0.5) candidateCols.push(c);
+            }
+            if (candidateCols.length === 0) return null;
+
+            const labelCol = cols.find(c => candidateCols.indexOf(c) === -1 && typeof sqlData.rows[0][c] === 'string') || cols[0];
+            const valueCol = candidateCols.find(c => c !== labelCol) || candidateCols[0];
+
+            const labels = [];
+            const values = [];
+            for (const r of sqlData.rows) {
+                labels.push(String(r[labelCol] ?? '').substring(0, 12));
+                values.push(Number(r[valueCol]) || 0);
+            }
+
+            const totalRows = sqlData.rows.length;
+            const barWidth = Math.max(12, Math.min(40, Math.floor(800 / totalRows)));
+            const chartMinWidth = totalRows * (barWidth + 1) + 40;
+            const needsScroll = totalRows > 20;
+
+            const container = document.createElement('div');
+            container.className = 'chart-container';
+
+            const title = document.createElement('div');
+            title.className = 'chart-title';
+            title.textContent = '📊 ' + valueCol + ' 分布（' + totalRows + ' 条）';
+            container.appendChild(title);
+
+            const scrollWrapper = document.createElement('div');
+            scrollWrapper.className = 'chart-wrapper';
+            if (needsScroll) {
+                scrollWrapper.style.overflowX = 'auto';
+                scrollWrapper.style.maxHeight = '310px';
+            }
+
+            const canvas = document.createElement('canvas');
+            if (needsScroll) {
+                canvas.style.width = Math.max(chartMinWidth, 800) + 'px';
+                canvas.style.height = '260px';
+            }
+            scrollWrapper.appendChild(canvas);
+            container.appendChild(scrollWrapper);
+
+            if (needsScroll) {
+                const hint = document.createElement('div');
+                hint.className = 'chart-hint';
+                hint.textContent = '💡 横向拖动查看更多数据';
+                container.appendChild(hint);
+            }
+
+            setTimeout(() => {
+                new Chart(canvas, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: valueCol,
+                            data: values,
+                            backgroundColor: 'rgba(37,99,235,0.6)',
+                            borderColor: 'rgba(37,99,235,1)',
+                            borderWidth: 1,
+                            borderRadius: 3,
+                        }]
+                    },
+                    options: {
+                        responsive: false,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { ticks: { maxRotation: 45, font: { size: 10 }, autoSkip: needsScroll } },
+                            y: { beginAtZero: true, ticks: { font: { size: 11 } } }
+                        }
+                    }
+                });
+            }, 50);
+
+            return container;
+        }
+
+        document.getElementById('questionInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
+        });
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') closeFullscreen();
+        });
+
+        loadDocuments();
+        loadProviderBadge();
+
+        function openSettings() { document.getElementById('settingsOverlay').classList.add('open'); loadConfig(); }
+        function closeSettings() { document.getElementById('settingsOverlay').classList.remove('open'); }
+
+        function toggleKeyVisibility(inputId, btn) {
+            const inp = document.getElementById(inputId);
+            if (inp.type === 'password') { inp.type = 'text'; btn.textContent = '🙈'; }
+            else { inp.type = 'password'; btn.textContent = '👁'; }
+        }
+
+        async function loadProviderBadge() {
+            try {
+                const res = await fetch('/api/config');
+                const cfg = await res.json();
+                const name = cfg.llm.provider.charAt(0).toUpperCase() + cfg.llm.provider.slice(1);
+                document.getElementById('providerBadge').textContent = '⚡ ' + cfg.llm.available_providers[cfg.llm.provider]?.name || name;
+            } catch(e) {}
+        }
+
+        async function loadConfig() {
+            try {
+                const res = await fetch('/api/config');
+                const cfg = await res.json();
+
+                const llmProv = document.getElementById('cfgLlmProvider');
+                llmProv.innerHTML = '';
+                for (const [key, val] of Object.entries(cfg.llm.available_providers)) {
+                    llmProv.innerHTML += `<option value="${key}" ${key===cfg.llm.provider?'selected':''}>${val.name}</option>`;
+                }
+                document.getElementById('cfgLlmBaseUrl').value = cfg.llm.base_url || '';
+                document.getElementById('cfgLlmApiKey').value = cfg.llm.api_key;
+                keyCache.llm[cfg.llm.provider] = cfg.llm.api_key;
+                fillLlmModels(cfg.llm.provider, cfg.llm.available_providers, cfg.llm.model_name);
+
+                const embProv = document.getElementById('cfgEmbProvider');
+                embProv.innerHTML = '';
+                for (const [key, val] of Object.entries(cfg.embedding.available_providers)) {
+                    embProv.innerHTML += `<option value="${key}" ${key===cfg.embedding.provider?'selected':''}>${val.name}</option>`;
+                }
+                document.getElementById('cfgEmbApiKey').value = cfg.embedding.api_key;
+                keyCache.emb[cfg.embedding.provider] = cfg.embedding.api_key;
+                fillEmbModels(cfg.embedding.provider, cfg.embedding.available_providers, cfg.embedding.model_name);
+
+                document.getElementById('testLlmResult').textContent = '';
+                document.getElementById('testLlmResult').className = 'test-result';
+                document.getElementById('btnTestLlm').className = 'btn-outline';
+                document.getElementById('testEmbResult').textContent = '';
+                document.getElementById('testEmbResult').className = 'test-result';
+                document.getElementById('btnTestEmb').className = 'btn-outline';
+            } catch(e) {
+                showToast('加载配置失败: ' + e.message, 'error');
+            }
+        }
+
+        function fillLlmModels(providerKey, providers, current) {
+            const sel = document.getElementById('cfgLlmModel');
+            sel.innerHTML = '';
+            const models = providers[providerKey]?.models || [];
+            models.forEach(m => { sel.innerHTML += `<option value="${m}" ${m===current?'selected':''}>${m}</option>`; });
+            if (models.length === 0 && current) {
+                sel.innerHTML = `<option value="${current}" selected>${current}</option>`;
+            }
+        }
+
+        function fillEmbModels(providerKey, providers, current) {
+            const sel = document.getElementById('cfgEmbModel');
+            sel.innerHTML = '';
+            const models = providers[providerKey]?.models || [];
+            models.forEach(m => { sel.innerHTML += `<option value="${m}" ${m===current?'selected':''}>${m}</option>`; });
+            if (models.length === 0 && current) {
+                sel.innerHTML = `<option value="${current}" selected>${current}</option>`;
+            }
+        }
+
+        async function onLlmProviderChange() {
+            const prevProv = document.getElementById('cfgLlmProvider').dataset.prev || '';
+            const prevKey = document.getElementById('cfgLlmApiKey').value;
+            if (prevKey && prevProv) keyCache.llm[prevProv] = prevKey;
+
+            const prov = document.getElementById('cfgLlmProvider').value;
+            document.getElementById('cfgLlmProvider').dataset.prev = prov;
+
+            const res = await fetch('/api/config');
+            const cfg = await res.json();
+            const providers = cfg.llm.available_providers;
+            fillLlmModels(prov, providers, (providers[prov]?.models||[])[0]||'');
+            if (providers[prov]?.base_url) {
+                document.getElementById('cfgLlmBaseUrl').value = providers[prov].base_url;
+            }
+            document.getElementById('cfgLlmApiKey').value = keyCache.llm[prov] || '';
+            document.getElementById('testLlmResult').textContent = '';
+            document.getElementById('testLlmResult').className = 'test-result';
+            document.getElementById('btnTestLlm').className = 'btn-outline';
+        }
+
+        async function onEmbProviderChange() {
+            const prevProv = document.getElementById('cfgEmbProvider').dataset.prev || '';
+            const prevKey = document.getElementById('cfgEmbApiKey').value;
+            if (prevKey && prevProv) keyCache.emb[prevProv] = prevKey;
+
+            const prov = document.getElementById('cfgEmbProvider').value;
+            document.getElementById('cfgEmbProvider').dataset.prev = prov;
+
+            const res = await fetch('/api/config');
+            const cfg = await res.json();
+            const providers = cfg.embedding.available_providers;
+            fillEmbModels(prov, providers, (providers[prov]?.models||[])[0]||'');
+            document.getElementById('cfgEmbApiKey').value = keyCache.emb[prov] || '';
+            document.getElementById('testEmbResult').textContent = '';
+            document.getElementById('testEmbResult').className = 'test-result';
+            document.getElementById('btnTestEmb').className = 'btn-outline';
+        }
+
+        function onLlmKeyInput() {
+            keyCache.llm[document.getElementById('cfgLlmProvider').value] = document.getElementById('cfgLlmApiKey').value;
+            document.getElementById('testLlmResult').textContent = '';
+            document.getElementById('testLlmResult').className = 'test-result';
+            document.getElementById('btnTestLlm').className = 'btn-outline';
+        }
+
+        function onEmbKeyInput() {
+            keyCache.emb[document.getElementById('cfgEmbProvider').value] = document.getElementById('cfgEmbApiKey').value;
+            document.getElementById('testEmbResult').textContent = '';
+            document.getElementById('testEmbResult').className = 'test-result';
+            document.getElementById('btnTestEmb').className = 'btn-outline';
+        }
+
+        async function saveSettings() {
+            const body = {
+                llm_provider: document.getElementById('cfgLlmProvider').value,
+                llm_model_name: document.getElementById('cfgLlmModel').value,
+                llm_base_url: document.getElementById('cfgLlmBaseUrl').value,
+                llm_api_key: document.getElementById('cfgLlmApiKey').value,
+                embedding_provider: document.getElementById('cfgEmbProvider').value,
+                embedding_model_name: document.getElementById('cfgEmbModel').value,
+                embedding_api_key: document.getElementById('cfgEmbApiKey').value,
+            };
+            try {
+                const res = await fetch('/api/config', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || '保存失败');
+                showToast('✅ 配置已保存 (已更新: ' + data.updated.join(', ') + ')', 'success');
+                closeSettings();
+                loadProviderBadge();
+            } catch(e) {
+                showToast('保存失败: ' + e.message, 'error');
+            }
+        }
+
+        async function testLlm() {
+            const btn = document.getElementById('btnTestLlm');
+            const result = document.getElementById('testLlmResult');
+            btn.disabled = true;
+            btn.textContent = '⏳ 测试中...';
+            result.textContent = '';
+            btn.className = 'btn-outline';
+            try {
+                const apiKey = document.getElementById('cfgLlmApiKey').value;
+                const baseUrl = document.getElementById('cfgLlmBaseUrl').value;
+                const model = document.getElementById('cfgLlmModel').value;
+                if (!apiKey) throw new Error('请先填写 API Key');
+
+                const body = { api_key: apiKey, base_url: baseUrl, model_name: model };
+                const res = await fetch('/api/config/test-llm', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail);
+                result.textContent = '✅ 连接成功: ' + data.response;
+                result.className = 'test-result ok';
+                btn.className = 'btn-outline success';
+            } catch(e) {
+                result.textContent = '❌ ' + e.message;
+                result.className = 'test-result fail';
+                btn.className = 'btn-outline error';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🔌 测试连接';
+            }
+        }
+
+        async function testEmbedding() {
+            const btn = document.getElementById('btnTestEmb');
+            const result = document.getElementById('testEmbResult');
+            btn.disabled = true;
+            btn.textContent = '⏳ 测试中...';
+            result.textContent = '';
+            btn.className = 'btn-outline';
+            try {
+                const apiKey = document.getElementById('cfgEmbApiKey').value;
+                const model = document.getElementById('cfgEmbModel').value;
+                if (!apiKey) throw new Error('请先填写 API Key');
+
+                const body = { api_key: apiKey, model_name: model };
+                const res = await fetch('/api/config/test-embedding', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail);
+                result.textContent = '✅ 连接成功，向量维度: ' + data.dimensions;
+                result.className = 'test-result ok';
+                btn.className = 'btn-outline success';
+            } catch(e) {
+                result.textContent = '❌ ' + e.message;
+                result.className = 'test-result fail';
+                btn.className = 'btn-outline error';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🔌 测试连接';
+            }
+        }
+    </script>
+<div class="settings-overlay" id="settingsOverlay" onclick="event.target===this&&closeSettings()">
+        <div class="settings-panel">
+            <div class="settings-panel-header">
+                <h3>⚙️ 系统设置</h3>
+                <button class="close-btn" onclick="closeSettings()">✕</button>
+            </div>
+
+            <div class="settings-section">
+                <h4>🧠 LLM 大模型</h4>
+                <div class="settings-group">
+                    <label>提供商</label>
+                    <select id="cfgLlmProvider" onchange="onLlmProviderChange()"></select>
+                </div>
+                <div class="settings-group">
+                    <label>模型</label>
+                    <select id="cfgLlmModel"></select>
+                </div>
+                <div class="settings-group">
+                    <label>Base URL</label>
+                    <input type="text" id="cfgLlmBaseUrl" placeholder="https://api.deepseek.com/v1">
+                </div>
+                <div class="settings-group">
+                    <label>API Key</label>
+                    <div class="input-wrap">
+                        <input type="password" id="cfgLlmApiKey" placeholder="sk-xxxxxxxxxxxxxxxx" oninput="onLlmKeyInput()">
+                        <button class="key-toggle" onclick="toggleKeyVisibility('cfgLlmApiKey',this)">👁</button>
+                    </div>
+                </div>
+                <div class="btn-row" style="margin-top:12px">
+                    <button class="btn-outline" id="btnTestLlm" onclick="testLlm()">🔌 测试连接</button>
+                </div>
+                <div class="test-result" id="testLlmResult"></div>
+            </div>
+
+            <div class="settings-section">
+                <h4>📊 Embedding 向量模型</h4>
+                <div class="settings-group">
+                    <label>提供商</label>
+                    <select id="cfgEmbProvider" onchange="onEmbProviderChange()"></select>
+                </div>
+                <div class="settings-group">
+                    <label>模型</label>
+                    <select id="cfgEmbModel"></select>
+                </div>
+                <div class="settings-group">
+                    <label>API Key</label>
+                    <div class="input-wrap">
+                        <input type="password" id="cfgEmbApiKey" placeholder="sk-xxxxxxxxxxxxxxxx" oninput="onEmbKeyInput()">
+                        <button class="key-toggle" onclick="toggleKeyVisibility('cfgEmbApiKey',this)">👁</button>
+                    </div>
+                </div>
+                <div class="btn-row" style="margin-top:12px">
+                    <button class="btn-outline" id="btnTestEmb" onclick="testEmbedding()">🔌 测试连接</button>
+                </div>
+                <div class="test-result" id="testEmbResult"></div>
+            </div>
+
+            <div class="settings-footer">
+                <button class="btn-primary" onclick="saveSettings()">💾 保存配置</button>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
